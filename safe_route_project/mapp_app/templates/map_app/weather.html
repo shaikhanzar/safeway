@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Rain Alert</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      background: linear-gradient(135deg, #74ebd5 0%, #9face6 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 2rem;
+    }
+    .app-container {
+      max-width: 700px;
+      width: 100%;
+    }
+    .card-custom {
+      border-radius: 15px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    }
+    .btn-custom {
+      border-radius: 8px;
+    }
+    .alert {
+      border-radius: 10px;
+    }
+    #weatherCard {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="text-center mb-4">
+      <h2 class="fw-bold text-white">🌧️ Rain Alert</h2>
+      <p class="text-light">Get real-time rain alerts and weather updates</p>
+    </div>
+
+    <!-- Input Card -->
+    <div class="card card-custom p-4 mb-4">
+      <div class="row g-2">
+        <div class="col-md-8">
+          <input id="cityInput" class="form-control form-control-lg" placeholder="Enter city (e.g. Mumbai) or leave blank for current location">
+        </div>
+        <div class="col-md-4 d-grid">
+          <button id="btnFetch" class="btn btn-primary btn-lg btn-custom">Get Weather</button>
+        </div>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-12 d-grid">
+          <button id="btnLocate" class="btn btn-outline-secondary btn-lg btn-custom">📍 Use My Location</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Weather Result Card -->
+    <div id="weatherCard" class="card card-custom p-4 bg-light">
+      <h4 id="locName" class="fw-bold mb-1"></h4>
+      <div id="timeStr" class="text-muted small mb-3"></div>
+      <h2 id="temp" class="fw-bold text-primary"></h2>
+      <p class="lead" id="desc"></p>
+      <p id="precip" class="mb-2"></p>
+      <div id="alertsContainer"></div>
+    </div>
+  </div>
+
+  <!-- Script -->
+  <script>
+    const OPENWEATHER_KEY = "5e914ee51bb363a503d0ecc1237eb090";
+
+    const btnFetch = document.getElementById('btnFetch');
+    const btnLocate = document.getElementById('btnLocate');
+    const cityInput = document.getElementById('cityInput');
+
+    btnFetch.addEventListener('click', () => {
+      const city = cityInput.value.trim();
+      if (city) {
+        geocodeCity(city).then(coords => {
+          if (coords) fetchWeather(coords.lat, coords.lon, coords.name);
+        });
+      } else {
+        useGeoAndFetch();
+      }
+    });
+
+    btnLocate.addEventListener('click', useGeoAndFetch);
+
+    function useGeoAndFetch() {
+      if (!navigator.geolocation) {
+        alert("Geolocation not supported by this browser.");
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        fetchWeather(lat, lon, "Your location");
+      }, err => {
+        alert("Unable to get location: " + err.message);
+      });
+    }
+
+    async function geocodeCity(city) {
+      try {
+        const url = `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(city)}&limit=1&appid=${OPENWEATHER_KEY}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(res.status + " " + res.statusText);
+        const data = await res.json();
+        if (!data || data.length === 0) {
+          alert("City not found.");
+          return null;
+        }
+        return { lat: data[0].lat, lon: data[0].lon, name: (data[0].name + (data[0].country ? ", " + data[0].country : "")) };
+      } catch (e) {
+        console.error(e);
+        alert("Geocoding failed: " + e.message);
+        return null;
+      }
+    }
+
+    async function fetchWeather(lat, lon, nameHint = "") {
+      try {
+        const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${OPENWEATHER_KEY}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(res.status + " " + res.statusText);
+        const data = await res.json();
+        renderCurrentWeather(data, nameHint);
+      } catch(e) {
+        console.error(e);
+        alert("Failed to fetch weather: " + e.message);
+      }
+    }
+
+    function renderCurrentWeather(data, nameHint) {
+      const card = document.getElementById('weatherCard');
+      const locName = document.getElementById('locName');
+      const timeStr = document.getElementById('timeStr');
+      const temp = document.getElementById('temp');
+      const desc = document.getElementById('desc');
+      const precip = document.getElementById('precip');
+      const alertsContainer = document.getElementById('alertsContainer');
+
+      card.style.display = "block";
+      locName.textContent = nameHint || data.name;
+      const dt = new Date((data.dt || Date.now()) * 1000);
+      timeStr.textContent = `As of ${dt.toLocaleString()}`;
+
+      temp.textContent = `${Math.round(data.main.temp)} °C`;
+      desc.textContent = (data.weather && data.weather[0] && data.weather[0].description) || "—";
+
+      const precipParts = [];
+      if (data.rain && data.rain["1h"]) precipParts.push(`Rain (last 1h): ${data.rain["1h"]} mm`);
+      if (data.snow && data.snow["1h"]) precipParts.push(`Snow (last 1h): ${data.snow["1h"]} mm`);
+      precip.textContent = precipParts.join(" • ") || "No precipitation reported in the last hour.";
+
+      alertsContainer.innerHTML = "";
+      const ok = document.createElement('div');
+      ok.className = 'alert alert-info';
+      ok.textContent = "Weather alerts are not available for free API keys.";
+      alertsContainer.appendChild(ok);
+    }
+  </script>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

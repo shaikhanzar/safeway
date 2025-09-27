@@ -1,0 +1,94 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safe Route Finder - Automatic</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        #map {
+            height: 75vh;
+            width: 100%;
+            border-radius: 8px;
+        }
+        .btn-custom {
+            min-width: 150px;
+        }
+        .legend {
+            background: white;
+            padding: 10px;
+            border-radius: 6px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            z-index: 5;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .color-box {
+            width: 20px;
+            height: 6px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+<div class="container my-3">
+    <h2 class="text-center mb-4">Safe Route Finder - Automatic Avoidance</h2>
+
+    <!-- First Row: Search Inputs + Find Safe Route -->
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <input id="start" type="text" class="form-control" placeholder="Start location">
+        </div>
+        <div class="col-md-4">
+            <input id="end" type="text" class="form-control" placeholder="End location">
+        </div>
+        <div class="col-md-4">
+            <button class="btn btn-primary w-100" onclick="calculateSafeRoute()">Find Safe Route</button>
+        </div>
+    </div>
+
+    <!-- Second Row: Other Buttons -->
+    <div class="row g-2 mb-3">
+        <div class="col-md-3">
+            <button class="btn btn-warning w-100" onclick="startAddingPolygon()">Add Waterlogged Area</button>
+        </div>
+        <div class="col-md-3">
+            <button class="btn btn-danger w-100" onclick="removeLastPolygon()">Remove Last Polygon</button>
+        </div>
+        <div class="col-md-3">
+            <button class="btn btn-secondary w-100" onclick="clearAllPolygons()">Clear All Polygons</button>
+        </div>
+        <div class="col-md-3">
+            <a class="btn btn-info w-100 text-white" href="{% url 'mapp_app:weather' %}">Weather & Alerts</a>
+        </div>
+    </div>
+
+    <div id="map" class="mb-3"></div>
+
+    <!-- Legend -->
+    <div class="legend">
+        <div class="legend-item"><div class="color-box" style="background:#3366FF;"></div>Route 1</div>
+        <div class="legend-item"><div class="color-box" style="background:#33CC33;"></div>Route 2</div>
+        <div class="legend-item"><div class="color-box" style="background:#FF9933;"></div>Route 3</div>
+        <div class="legend-item"><div class="color-box" style="background:#0000FF;"></div>Waterlogged Area</div>
+    </div>
+</div>
+
+<script>
+    const existingAreas = {{ areas_json|safe }};
+</script>
+<script src="{% static 'map_app/app.js' %}"></script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDSrsA9oHREcRIQs9MKHg17C62lrNmv6kU&libraries=places,drawing,geometry&callback=initMap"></script>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

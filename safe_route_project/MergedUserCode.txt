@@ -1,0 +1,670 @@
+
+
+# ===== File: manage.py =====
+
+#!/usr/bin/env python
+"""Django's command-line utility for administrative tasks."""
+import os
+import sys
+
+
+def main():
+    """Run administrative tasks."""
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'safe_route_project.settings')
+    try:
+        from django.core.management import execute_from_command_line
+    except ImportError as exc:
+        raise ImportError(
+            "Couldn't import Django. Are you sure it's installed and "
+            "available on your PYTHONPATH environment variable? Did you "
+            "forget to activate a virtual environment?"
+        ) from exc
+    execute_from_command_line(sys.argv)
+
+
+if __name__ == '__main__':
+    main()
+
+
+# ===== File: merge.py =====
+
+import os
+
+# Project root (folder containing manage.py)
+PROJECT_ROOT = r"C:\Users\SAYLI\OneDrive\Desktop\project\srf\safe_route_project"
+
+# Output file in the same folder
+OUTPUT_FILE = os.path.join(PROJECT_ROOT, "MergedUserCode.txt")
+
+# File types to include
+INCLUDE_EXTENSIONS = (".py", ".html", ".css", ".js")
+
+# Folders to exclude
+EXCLUDE_FOLDERS = ("venv", "_pycache_", "migrations", "node_modules", ".git")
+
+# Files to exclude (boilerplate)
+EXCLUDE_FILES = ("_init_.py", "admin.py", "apps.py", "wsgi.py", "asgi.py", "settings.py")
+
+with open(OUTPUT_FILE, "w", encoding="utf-8") as outfile:
+    for root, dirs, files in os.walk(PROJECT_ROOT):
+        # Skip unwanted folders
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_FOLDERS]
+
+        for file in files:
+            if file.endswith(INCLUDE_EXTENSIONS) and file not in EXCLUDE_FILES:
+                file_path = os.path.join(root, file)
+                rel_path = os.path.relpath(file_path, PROJECT_ROOT)
+
+                # Separator for clarity
+                outfile.write(f"\n\n# ===== File: {rel_path} =====\n\n")
+
+                # Write file content
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        outfile.write(f.read())
+                except Exception as e:
+                    outfile.write(f"# Error reading file: {e}\n")
+
+print(f"All user-written code has been merged into '{OUTPUT_FILE}'")
+
+# ===== File: mapp_app\models.py =====
+
+from django.db import models
+
+# Create your models here.
+class WaterloggedArea(models.Model):
+    name = models.CharField(max_length=100, blank=True)
+    # Store polygon coordinates as JSON
+    coordinates = models.JSONField()
+
+    def __str__(self):
+        return self.name or f"Area {self.id}"
+
+
+# ===== File: mapp_app\tests.py =====
+
+from django.test import TestCase
+
+# Create your tests here.
+
+
+# ===== File: mapp_app\urls.py =====
+
+"""
+URL configuration for safe_route_project project.
+
+The `urlpatterns` list routes URLs to views. For more information please see:
+    https://docs.djangoproject.com/en/5.2/topics/http/urls/
+Examples:
+Function views
+    1. Add an import:  from my_app import views
+    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+Class-based views
+    1. Add an import:  from other_app.views import Home
+    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+Including another URLconf
+    1. Import the include() function: from django.urls import include, path
+    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+"""
+from django.contrib import admin
+from django.urls import path
+from mapp_app import views
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', views.index, name='index'),
+    path('add_polygon/', views.add_polygon, name='add_polygon'),
+    path('remove_last_polygon/', views.remove_last_polygon, name='remove_last_polygon'),
+    path('clear_polygons/', views.clear_polygons, name='clear_polygons'),
+    path('load_polygons/', views.load_polygons, name='load_polygons'),
+    path('weather/', views.weather, name='weather'),
+]
+
+
+# ===== File: mapp_app\views.py =====
+
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import json
+from .models import WaterloggedArea
+
+# Create your views here.
+
+def index(request):
+    areas = WaterloggedArea.objects.all()
+    # Convert coordinates to JSON for frontend
+    areas_json = json.dumps([area.coordinates for area in areas])
+    return render(request, 'map_app/index.html', {'areas_json': areas_json})
+
+# Save a new polygon
+@csrf_exempt
+def add_polygon(request):
+    if request.method == "POST":
+        data = json.loads(request.body)
+        coords = data.get("coordinates", [])
+        if coords:
+            WaterloggedArea.objects.create(coordinates=coords)
+            return JsonResponse({"status": "success"})
+    return JsonResponse({"status": "error"}, status=400)
+
+
+# Remove the last polygon
+@csrf_exempt
+def remove_last_polygon(request):
+    if request.method == "POST":
+        last = WaterloggedArea.objects.order_by('-id').first()
+        if last:
+            last.delete()
+            return JsonResponse({"status": "success"})
+    return JsonResponse({"status": "error"}, status=400)
+
+
+# Clear all polygons
+@csrf_exempt
+def clear_polygons(request):
+    if request.method == "POST":
+        WaterloggedArea.objects.all().delete()
+        return JsonResponse({"status": "success"})
+    return JsonResponse({"status": "error"}, status=400)
+
+
+# Load all polygons (for initializing the map)
+def load_polygons(request):
+    areas = WaterloggedArea.objects.all()
+    data = [{"id": area.id, "coordinates": area.coordinates} for area in areas]
+    return JsonResponse(data, safe=False)
+
+def weather(request):
+    return render(request, 'map_app/weather.html')
+
+
+
+# ===== File: mapp_app\__init__.py =====
+
+
+
+# ===== File: mapp_app\static\map_app\app.js =====
+
+let map;
+let directionsService;
+let directionsRenderers = [];
+let markers = [];
+let waterloggedAreas = [];
+let drawingManager;
+let startInput, endInput;
+
+function initMap() {
+    map = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: 19.0760, lng: 72.8777 },
+        zoom: 12
+    });
+
+    directionsService = new google.maps.DirectionsService();
+
+    startInput = document.getElementById("start");
+    endInput = document.getElementById("end");
+
+    new google.maps.places.Autocomplete(startInput);
+    new google.maps.places.Autocomplete(endInput);
+
+    drawingManager = new google.maps.drawing.DrawingManager({
+        drawingMode: null,
+        drawingControl: false,
+        polygonOptions: {
+            fillColor: "#0000FF",
+            fillOpacity: 0.35,
+            strokeWeight: 2,
+            clickable: false,
+            editable: false,
+            zIndex: 1
+        }
+    });
+    drawingManager.setMap(map);
+
+    loadPolygons();
+}
+
+// Inside your JS file
+
+function startAddingPolygon() {
+    alert("Draw polygon to mark waterlogged area. Double-click to finish.");
+    drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
+
+    // Listen for polygon completion
+    google.maps.event.addListenerOnce(drawingManager, 'polygoncomplete', function(polygon) {
+        // Add polygon to array
+        waterloggedAreas.push(polygon);
+
+        // Stop drawing mode
+        drawingManager.setDrawingMode(null);
+
+        // Optional: send to server
+        const coords = polygon.getPath().getArray().map(p => ({ lat: p.lat(), lng: p.lng() }));
+        fetch('/add_polygon/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ coordinates: coords })
+        });
+    });
+}
+
+
+// Fetch polygons from server
+async function loadPolygons() {
+    const res = await fetch('/load_polygons/');
+    const data = await res.json();
+    data.forEach(area => {
+        const polygon = new google.maps.Polygon({
+            paths: area.coordinates,
+            fillColor: "#0000FF",
+            fillOpacity: 0.35,
+            strokeWeight: 2,
+            map: map
+        });
+        waterloggedAreas.push(polygon);
+    });
+}
+
+// CSRF helper
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        document.cookie.split(';').forEach(cookie => {
+            cookie = cookie.trim();
+            if (cookie.startsWith(name + '=')) cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        });
+    }
+    return cookieValue;
+}
+
+// Remove old routes
+function clearRoutes() {
+    directionsRenderers.forEach(renderer => renderer.setMap(null));
+    directionsRenderers = [];
+    markers.forEach(marker => marker.setMap(null));
+    markers = [];
+}
+
+// Check if point is inside polygons
+function isPointInWaterloggedAreas(latLng) {
+    return waterloggedAreas.some(polygon => google.maps.geometry.poly.containsLocation(latLng, polygon));
+}
+
+// Generate waypoints around polygon
+function generateWaypoints(polygon) {
+    const path = polygon.getPath().getArray();
+    let waypoints = [];
+    path.forEach(pt => {
+        waypoints.push({location: {lat: pt.lat() + 0.01, lng: pt.lng() + 0.01}, stopover: false});
+        waypoints.push({location: {lat: pt.lat() - 0.01, lng: pt.lng() - 0.01}, stopover: false});
+    });
+    return waypoints;
+}
+
+// Calculate safe routes
+function calculateSafeRoute() {
+    const start = startInput.value;
+    const end = endInput.value;
+
+    if (!start || !end) {
+        alert("Please enter both Start and End locations.");
+        return;
+    }
+
+    const startGeocoder = new google.maps.Geocoder();
+    const endGeocoder = new google.maps.Geocoder();
+
+    startGeocoder.geocode({ address: start }, (startResults, status1) => {
+        if (status1 !== "OK" || !startResults[0]) { alert("Invalid start location."); return; }
+        const startLatLng = startResults[0].geometry.location;
+
+        endGeocoder.geocode({ address: end }, (endResults, status2) => {
+            if (status2 !== "OK" || !endResults[0]) { alert("Invalid end location."); return; }
+            const endLatLng = endResults[0].geometry.location;
+
+            if (isPointInWaterloggedAreas(startLatLng) || isPointInWaterloggedAreas(endLatLng)) {
+                alert("Start or End is inside a waterlogged area! Choose another location."); return;
+            }
+
+            clearRoutes();
+
+            let attempt = 0;
+            let maxAttempts = 5;
+            let allWaypoints = [];
+
+            function tryRoute() {
+                directionsService.route({
+                    origin: startLatLng,
+                    destination: endLatLng,
+                    travelMode: 'DRIVING',
+                    waypoints: allWaypoints,
+                    optimizeWaypoints: true,
+                    provideRouteAlternatives: true
+                }, (response, status) => {
+                    if (status === 'OK') {
+                        const safeRoutes = response.routes.filter(route => {
+                            for (let leg of route.legs) {
+                                for (let step of leg.steps) {
+                                    for (let point of step.path) {
+                                        if (isPointInWaterloggedAreas(point)) return false;
+                                    }
+                                }
+                            }
+                            return true;
+                        });
+
+                        if (safeRoutes.length > 0) {
+                            const colors = ["#3366FF", "#33CC33", "#FF9933", "#FF3333"];
+                            safeRoutes.forEach((route, index) => {
+                                const renderer = new google.maps.DirectionsRenderer({
+                                    map: map,
+                                    directions: response,
+                                    routeIndex: response.routes.indexOf(route),
+                                    polylineOptions: { strokeColor: colors[index % colors.length], strokeWeight: 5 },
+                                    suppressMarkers: true
+                                });
+                                directionsRenderers.push(renderer);
+
+                                // Add markers
+                                const leg = route.legs[0];
+                                const startMarker = new google.maps.Marker({ position: leg.start_location, map: map, label: (index + 1).toString() });
+                                const endMarker = new google.maps.Marker({ position: leg.end_location, map: map, label: (index + 1).toString() });
+                                markers.push(startMarker, endMarker);
+
+                                const info = new google.maps.InfoWindow({ content: `Route ${index + 1}` });
+                                startMarker.addListener('click', () => info.open(map, startMarker));
+                                endMarker.addListener('click', () => info.open(map, endMarker));
+                            });
+
+                            alert(`✅ Safe route found! ${safeRoutes.length} safe route(s) displayed.`);
+                        } else {
+                            attempt++;
+                            if (attempt <= maxAttempts && waterloggedAreas.length > 0) {
+                                allWaypoints = allWaypoints.concat(generateWaypoints(waterloggedAreas[0]));
+                                tryRoute();
+                            } else alert("❌ Could not find a safe route after several attempts.");
+                        }
+                    } else {
+                        alert("Could not calculate route: " + status);
+                    }
+                });
+            }
+
+            tryRoute();
+        });
+    });
+}
+
+function removeLastPolygon() {
+    if (waterloggedAreas.length > 0) {
+        const lastPolygon = waterloggedAreas.pop();
+        lastPolygon.setMap(null);
+
+        // Send the coordinates of the removed polygon to server
+        const coords = lastPolygon.getPath().getArray().map(p => ({lat: p.lat(), lng: p.lng()}));
+        fetch('/remove_last_polygon/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({coordinates: coords})
+        });
+
+        alert("Last polygon removed!");
+    } else {
+        alert("No polygons to remove.");
+    }
+}
+
+
+function clearAllPolygons() {
+    if (waterloggedAreas.length > 0) {
+        waterloggedAreas.forEach(polygon => polygon.setMap(null));
+        waterloggedAreas = [];
+
+        // Tell server to clear polygons
+        fetch('/clear_polygons/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        });
+
+        alert("All polygons removed!");
+    } else {
+        alert("No polygons to remove.");
+    }
+}
+
+function updatePolygonButtons() {
+    document.getElementById("removeLastBtn").disabled = waterloggedAreas.length === 0;
+    document.getElementById("clearAllBtn").disabled = waterloggedAreas.length === 0;
+}
+
+
+# ===== File: mapp_app\templates\map_app\index.html =====
+
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Safe Route Finder - Automatic</title>
+    <style>
+        #map {
+            height: 80vh;
+            width: 100%;
+        }
+        #controls {
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Safe Route Finder - Automatic Avoidance</h2>
+    <div id="controls">
+        <input id="start" placeholder="Start location">
+        <input id="end" placeholder="End location">
+        <button onclick="calculateSafeRoute()">Find Safe Route</button>
+        <button onclick="startAddingPolygon()">Add Waterlogged Area</button>
+        <button onclick="removeLastPolygon()">Remove Last Polygon</button>
+        <button onclick="clearAllPolygons()">Clear All Polygons</button>
+        <a href="{% url 'weather' %}">Check Weather & Alerts</a>
+    </div>
+    <div id="map"></div>
+
+    <script>
+        const existingAreas = {{ areas_json|safe }};
+    </script>
+    <script src="{% static 'map_app/app.js' %}"></script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDSrsA9oHREcRIQs9MKHg17C62lrNmv6kU&libraries=places,drawing,geometry&callback=initMap"></script>
+</body>
+</html>
+
+
+# ===== File: mapp_app\templates\map_app\weather.html =====
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Rain Alert App</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; margin: 1rem; max-width: 760px; }
+    header { display:flex; gap:1rem; align-items:center; margin-bottom:1rem; }
+    input { padding:0.5rem; font-size:1rem; width: 60%; }
+    button { padding:0.5rem 0.75rem; font-size:1rem; }
+    #card { border-radius:10px; box-shadow:0 4px 18px rgba(0,0,0,0.08); padding:1rem; margin-top:1rem; }
+    .alert { background:#fff3cd; border-left:4px solid #ffecb5; padding:0.75rem; margin-top:0.5rem; border-radius:6px; }
+    .danger { background:#ffe6e6; border-left:4px solid #ff8a8a; }
+    .meta { color:#666; font-size:0.9rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h2 style="margin:0">Rain Alert App</h2>
+  </header>
+
+  <div>
+    <input id="cityInput" placeholder="Enter city (e.g. Mumbai) or leave blank to use current location" />
+    <button id="btnFetch">Get Weather & Alerts</button>
+    <button id="btnLocate">Use My Location</button>
+  </div>
+
+  <div id="card" style="display:none;">
+    <h3 id="locName"></h3>
+    <div class="meta" id="timeStr"></div>
+    <p><strong id="temp"></strong> — <span id="desc"></span></p>
+    <div id="precip"></div>
+
+    <div id="alertsContainer"></div>
+  </div>
+
+  <script>
+  // ---------- CONFIG ----------
+  // Replace with your OpenWeather API key.
+  // For production, DO NOT put the key directly in client JS. Use a server proxy instead.
+  const OPENWEATHER_KEY = "5e914ee51bb363a503d0ecc1237eb090";
+  // ----------------------------
+
+  const btnFetch = document.getElementById('btnFetch');
+  const btnLocate = document.getElementById('btnLocate');
+  const cityInput = document.getElementById('cityInput');
+
+btnFetch.addEventListener('click', () => {
+  const city = cityInput.value.trim();
+  if (city) {
+    geocodeCity(city).then(coords => {
+      if (coords) fetchWeather(coords.lat, coords.lon, coords.name);
+    });
+  } else {
+    useGeoAndFetch();
+  }
+});
+
+btnLocate.addEventListener('click', useGeoAndFetch);
+
+function useGeoAndFetch() {
+  if (!navigator.geolocation) {
+    alert("Geolocation not supported by this browser.");
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+    fetchWeather(lat, lon, "Your location");
+  }, err => {
+    alert("Unable to get location: " + err.message);
+  });
+}
+
+
+  // simple geocoding via OpenWeather Geocoding API
+  async function geocodeCity(city) {
+    try {
+      const url = `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(city)}&limit=1&appid=${OPENWEATHER_KEY}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(res.status + " " + res.statusText);
+      const data = await res.json();
+      if (!data || data.length === 0) {
+        alert("City not found.");
+        return null;
+      }
+      return { lat: data[0].lat, lon: data[0].lon, name: (data[0].name + (data[0].country ? ", " + data[0].country : "")) };
+    } catch (e) {
+      console.error(e);
+      alert("Geocoding failed: " + e.message);
+      return null;
+    }
+  }
+
+  // fetch One Call weather (current + alerts)
+async function fetchWeather(lat, lon, nameHint = "") {
+  try {
+    const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${OPENWEATHER_KEY}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(res.status + " " + res.statusText);
+    const data = await res.json();
+    renderCurrentWeather(data, nameHint);
+  } catch(e) {
+    console.error(e);
+    alert("Failed to fetch weather: " + e.message);
+  }
+}
+
+
+function renderCurrentWeather(data, nameHint) {
+  const card = document.getElementById('card');
+  const locName = document.getElementById('locName');
+  const timeStr = document.getElementById('timeStr');
+  const temp = document.getElementById('temp');
+  const desc = document.getElementById('desc');
+  const precip = document.getElementById('precip');
+  const alertsContainer = document.getElementById('alertsContainer');
+
+  card.style.display = "block";
+  locName.textContent = nameHint || data.name;
+  const dt = new Date((data.dt || Date.now()) * 1000);
+  timeStr.textContent = `As of ${dt.toLocaleString()}`;
+
+  temp.textContent = `${Math.round(data.main.temp)} °C`;
+  desc.textContent = (data.weather && data.weather[0] && data.weather[0].description) || "—";
+
+  // precipitation info
+  const precipParts = [];
+  if (data.rain && data.rain["1h"]) precipParts.push(`Rain (last 1h): ${data.rain["1h"]} mm`);
+  if (data.snow && data.snow["1h"]) precipParts.push(`Snow (last 1h): ${data.snow["1h"]} mm`);
+  precip.textContent = precipParts.join(" • ") || "No precipitation reported in the last hour.";
+
+  // Alerts not available in free plan
+  alertsContainer.innerHTML = "";
+  const ok = document.createElement('div');
+  ok.className = 'meta';
+  ok.textContent = "Weather alerts are not available for free API keys.";
+  alertsContainer.appendChild(ok);
+}
+
+
+  // small helper to avoid injecting raw HTML
+  function escapeHtml(s){ return s ? s.replace(/[&<>"'`=\/]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'})[c]; }) : s; }
+
+  </script>
+</body>
+</html>
+
+
+# ===== File: safe_route_project\urls.py =====
+
+"""
+URL configuration for safe_route_project project.
+
+The `urlpatterns` list routes URLs to views. For more information please see:
+    https://docs.djangoproject.com/en/5.2/topics/http/urls/
+Examples:
+Function views
+    1. Add an import:  from my_app import views
+    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+Class-based views
+    1. Add an import:  from other_app.views import Home
+    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+Including another URLconf
+    1. Import the include() function: from django.urls import include, path
+    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+"""
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', include('mapp_app.urls')),
+]
+
+
+# ===== File: safe_route_project\__init__.py =====
+
